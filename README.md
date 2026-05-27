@@ -112,9 +112,7 @@ instance level, adding a second layer of defence beyond subnet routing:
 
 **Why manual VPC over the AWS wizard?**
 The AWS "VPC and More" wizard auto-generates components silently and can
-Create NAT Gateways that incur costs. Building manually ensures full
-understanding of every routing decision and keeps the environment
-within free tier limits.
+Create NAT Gateways. I'm using the VPC only to build manually to ensure full control of every routing decision.
 
 **Why is there no internet route on private subnets?**
 Workload and security subnets have zero direct internet exposure by
