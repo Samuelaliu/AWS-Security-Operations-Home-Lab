@@ -46,6 +46,8 @@ Created a custom VPC (`security-ops-lab-vpc`) with a /16 CIDR block
 Chosen over the AWS default VPC to maintain full control over routing,
 segmentation, and security boundaries.
 
+<img width="1920" height="995" alt="Screenshot 2026-05-26 at 11 12 18 pm" src="https://github.com/user-attachments/assets/7f926d1e-df98-40d6-a64d-3c7d43fcc904" />
+
 <img width="1920" height="993" alt="Screenshot 2026-05-27 at 3 23 50 am" src="https://github.com/user-attachments/assets/f2ba6423-3bf4-4095-aff0-8c4a0b91d86b" />
 
 ---
@@ -114,9 +116,9 @@ Create NAT Gateways that incur costs. Building manually ensures full
 understanding of every routing decision and keeps the environment
 within free tier limits.
 
-**Why no internet route on private subnets?**
+**Why is there no internet route on private subnets?**
 Workload and security subnets have zero direct internet exposure by
-design. Any traffic in or out must pass through pfSense in the DMZ —
+design. Any traffic in or out must pass through pfSense in the DMZ
 enforcing inspection, logging, and rule-based filtering at a single
 controlled gateway.
 
