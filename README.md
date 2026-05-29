@@ -14,7 +14,7 @@ automated response
 
 ## Progress
 - [x] Phase 1: VPC architecture, subnets, routing, security groups ✅
-- [ ] Phase 2: pfSense firewall deployment and rule configuration
+- [x] Phase 2: pfSense firewall deployment and rule configuration ✅
 - [ ] Phase 3: Wazuh SIEM + Suricata IDS/IPS
 - [ ] Phase 4: AWS WAF + web application target
 - [ ] Phase 5: Attack simulation + detection + remediation
@@ -108,7 +108,7 @@ instance level, adding a second layer of defence beyond subnet routing:
 
 ---
 
-### Security Decisions & Reasoning
+### My Security Decisions & Reasoning
 
 **Why manual VPC over the AWS wizard?**
 The AWS "VPC and More" wizard auto-generates components silently and can
@@ -128,3 +128,161 @@ charges, maintaining a strictly $0 lab environment.
 A fully segmented AWS network with enforced routing boundaries, 
 least-privilege security group rules, and a clear DMZ → private subnet 
 architecture ready for firewall and SIEM deployment.
+
+## Phase 2: Firewall Deployment & Network Traffic Control
+
+### My Objective
+Deploy and configure a Linux-based firewall gateway in the DMZ subnet 
+to control, inspect, and NAT traffic between the Internet and the 
+isolated private subnets — enforcing the network segmentation designed 
+in Phase 1.
+
+### Instance Details
+| Property | Value |
+|---|---|
+| Name | ubuntu-firewall |
+| AMI | Ubuntu Server 26.04 LTS |
+| Instance Type | t3.micro |
+| Subnet | dmz-subnet (10.0.10.0/24) |
+| Private IP | 10.0.10.157 |
+| Security Group | pfsense-sg |
+| Key Pair | security-ops-lab-key |
+
+<img width="1918" height="939" alt="Screenshot 2026-05-29 at 3 09 18 am" src="https://github.com/user-attachments/assets/c47b3551-931c-4bbb-a391-6b2e4fa14ce5" />
+<img width="1920" height="970" alt="Screenshot 2026-05-29 at 3 10 24 am" src="https://github.com/user-attachments/assets/35485a73-c9d6-4403-b729-0561dfb470ac" />
+<img width="1920" height="962" alt="Screenshot 2026-05-29 at 3 07 58 am" src="https://github.com/user-attachments/assets/208e688d-6e0e-4ac5-bfb7-7f254ffcf16b" />
+
+### What Was Built
+
+**System Preparation**
+
+Updated all system packages to ensure the instance was fully patched 
+before any configuration:
+
+```Command prompt
+sudo apt update && sudo apt upgrade -y
+```
+
+---
+
+**IP Forwarding**
+
+Enabled IP forwarding at the kernel level — this is what transforms 
+the Ubuntu instance from a regular host into a network router/firewall 
+capable of forwarding packets between subnets:
+
+```Command on terminal
+echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+Output confirmed: net.ipv4.ip_forward = 1
+
+Without this setting, the instance would accept packets destined for 
+itself but silently discards any packets meant for other hosts, making 
+inter-subnet routing impossible.
+
+---
+**nftables Firewall Configuration**
+
+Installed and configured nftables as the firewall engine. nftables is 
+the modern Linux packet filtering framework, replacing iptables in 
+current Ubuntu distributions.
+
+Identified the correct network interface:
+
+```command prompt
+ip link show
+# Interface: ens5
+```
+I wrote a full firewall ruleset to `/etc/nftables.conf` covering three 
+enforcement layers:
+
+**1. Input Chain — Host Protection (Default: DROP)**
+Controls traffic destined for the firewall instance itself:
+- Allows established/related connections (stateful inspection)
+- Allows loopback interface traffic
+- Allows SSH on port 22 (access controlled at security group level)
+- Allows ICMP for network diagnostics
+- Allows all traffic from within the VPC range (10.0.0.0/16)
+- Drops everything else by default
+
+**2. Forward Chain — Inter-Subnet Traffic Control (Default: DROP)**
+Controls traffic passing through the firewall between subnets:
+- Allows established/related forwarded connections
+- Permits workload subnet (10.0.20.0/24) to reach security subnet 
+  (10.0.30.0/24) for Wazuh agent communication
+- Permits the security subnet to reach the workload subnet for monitoring 
+  and response
+- Logs and drops all other forwarded traffic with the prefix 
+  "nftables-drop:" for SIEM ingestion
+
+**3. NAT Postrouting — Internet Access for Private Subnets**
+Masquerades outbound traffic from private subnets through the 
+firewall's public interface (ens5):
+- Workload subnet (10.0.20.0/24) → NAT → internet
+- Security subnet (10.0.30.0/24) → NAT → internet
+
+Full ruleset applied and verified:
+
+```Command prompt
+sudo nft list ruleset
+```
+
+<img width="1192" height="963" alt="Screenshot 2026-05-29 at 4 01 44 am" src="https://github.com/user-attachments/assets/56fc8d81-7ff6-4441-873b-371be6fd5c95" />
+
+---
+
+**Persistence Configuration**
+
+I enabled nftables as a systemd service to ensure rules survive reboots:
+
+```command prompt
+sudo systemctl enable nftables
+sudo systemctl restart nftables
+sudo systemctl status nftables
+```
+
+Status confirmed: `active (exited) — status=0/SUCCESS`
+
+<img width="1279" height="913" alt="Screenshot 2026-05-29 at 3 34 03 am" src="https://github.com/user-attachments/assets/c1765e7f-b735-4c9d-9212-ceef794e13bc" />
+
+
+---
+
+### My Security Decisions & Reasoning
+
+**Why Ubuntu + nftables instead of pfSense?**
+pfSense on AWS Marketplace charges $0.12/hr in software fees 
+approximately $87/month on top of EC2 costs. nftables on Ubuntu 
+achieves identical firewall outcomes (stateful inspection, NAT, 
+inter-subnet routing, packet logging) at zero cost, and requires A 
+deeper hands-on understanding of firewall rule construction since 
+there is no GUI abstraction.
+
+**Why default DROP policy on input and forward chains?**
+Deny-by-default is a core security principle only explicitly 
+permitted traffic passes through. Any misconfiguration results in 
+traffic would be blocked rather than accidentally permitted, which is 
+the safer failure mode in a security environment.
+
+**Why log dropped forward packets?**
+The `log prefix "nftables-drop:"` rule on the forward chain means 
+every blocked inter-subnet packet is logged to the system journal. 
+These logs will be ingested by Wazuh, enabling SIEM 
+visibility into blocked traffic patterns and potential lateral 
+movement attempts.
+
+**Why NAT from private subnets through the firewall?**
+Private subnets have no internet gateway route by design. 
+NAT masquerading through the firewall means outbound internet access 
+for the Wazuh server and workload host is possible, but all traffic 
+is routed and inspectable through a single controlled egress point.
+
+---
+
+### My Outcome
+A fully configured Linux firewall gateway running in the DMZ subnet 
+with stateful packet inspection, explicit inter-subnet routing rules, 
+NAT for private subnet internet access, dropped packet logging for 
+SIEM ingestion and persistent configuration across reboots. The 
+network is now ready for SIEM and IDS/IPS deployment.
