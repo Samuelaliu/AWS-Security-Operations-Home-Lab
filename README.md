@@ -15,7 +15,7 @@ automated response
 ## Progress
 - [x] Phase 1: VPC architecture, subnets, routing, security groups ✅
 - [x] Phase 2: pfSense firewall deployment and rule configuration ✅
-- [ ] Phase 3: Wazuh SIEM + Suricata IDS/IPS
+- [x] Phase 3: Wazuh SIEM + Suricata IDS/IPS ✅
 - [ ] Phase 4: AWS WAF + web application target
 - [ ] Phase 5: Attack simulation + detection + remediation
 - [ ] Phase 6: Automated response + documentation
@@ -286,3 +286,235 @@ with stateful packet inspection, explicit inter-subnet routing rules,
 NAT for private subnet internet access, dropped packet logging for 
 SIEM ingestion and persistent configuration across reboots. The 
 network is now ready for SIEM and IDS/IPS deployment.
+
+## Phase 3: Wazuh SIEM Deployment & Endpoint Monitoring
+
+### Objective
+Deploy a fully functional Security Information and Event Management 
+(SIEM) platform in the isolated security subnet, connect it to the 
+workload host as a monitored endpoint, and establish real-time security 
+event visibility across the environment.
+
+### Instance Details — Wazuh Server
+| Property | Value |
+|---|---|
+| Name | wazuh-server |
+| AMI | Ubuntu Server 26.04 LTS |
+| Instance Type | t3.small (2GB RAM) |
+| Subnet | security-subnet (10.0.30.0/24) |
+| Private IP | 10.0.30.42 |
+| Security Group | wazuh-sg |
+| Access Method | Bastion/jump host via Ubuntu firewall |
+
+### Instance Details — Workload Host
+| Property | Value |
+|---|---|
+| Name | workload-host |
+| AMI | Ubuntu Server 26.04 LTS |
+| Instance Type | t3.micro |
+| Subnet | workload-subnet (10.0.20.0/24) |
+| Private IP | 10.0.20.143 |
+| Security Group | workload-sg |
+| Access Method | Bastion/jump host via Ubuntu firewall |
+<img width="1919" height="1000" alt="Screenshot 2026-05-30 at 6 41 01 am" src="https://github.com/user-attachments/assets/47bb69f1-cfab-4512-8b15-0cb80f2834a0" />
+
+### What Was Built
+
+**Wazuh All-in-One Installation**
+
+Installed Wazuh 4.14.5 on the security subnet server using the official 
+all-in-one installer, deploying three core components:
+
+- **Wazuh Manager** — the central security event processing engine
+- **Wazuh Indexer** — OpenSearch-based log storage and indexing
+- **Wazuh Dashboard** — web-based SIEM interface for alert management
+
+```command prompt
+curl -sO https://packages.wazuh.com/4.7/wazuh-install.sh
+sudo bash wazuh-install.sh -a -i
+```
+
+---
+
+**Infrastructure Challenges Resolved**
+
+Several real-world infrastructure problems were encountered and resolved 
+during deployment — each one a genuine debugging exercise:
+
+**Challenge 1: Private subnet internet isolation**
+The security subnet had no internet gateway route by design (Phase 1). 
+Temporarily associated the subnet with the public route table during 
+installation, then restored private isolation after completion. This 
+mirrors real production patterns where private instances are temporarily 
+exposed for patching, then re-isolated.
+
+**Challenge 2: Insufficient RAM on t3.micro**
+The Wazuh Indexer (OpenSearch/Java) requires more than 1GB RAM. Resolved 
+by adding 2GB swap space and upgrading the instance to t3.small (2GB RAM) 
+to ensure the stable operation of all three Wazuh components simultaneously.
+
+```command prompt
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+**Challenge 3: Version mismatch between manager and agent**
+Initial agent installation pulled version 4.14.5 against a 4.7.5 manager. 
+Resolved by upgrading all Wazuh components to 4.14.5 for consistency.
+
+**Challenge 4: Missing SSL certificates after upgrade**
+Post-upgrade, the dashboard config referenced certificate paths that 
+differed from the actual installed filenames. Resolved by updating the 
+dashboard configuration to match the correct certificate paths:
+
+```command prompt
+sudo sed -i 's|certs/dashboard-key.pem|certs/wazuh-dashboard-key.pem|' \
+    /etc/wazuh-dashboard/opensearch_dashboards.yml
+sudo sed -i 's|certs/dashboard.pem|certs/wazuh-dashboard.pem|' \
+    /etc/wazuh-dashboard/opensearch_dashboards.yml
+```
+
+**Challenge 5 — Bastion/jump host architecture**
+The security subnet has no direct internet route, making direct SSH 
+impossible. Implemented a jump host pattern through the firewall instance:
+
+```command prompt
+# Access Wazuh server through firewall bastion
+ssh -i ~/.ssh/security-ops-lab-key.pem \
+    -J ubuntu@ \
+    ubuntu@10.0.30.42
+```
+---
+
+**Wazuh Agent Deployment on Workload Host**
+
+Installed the Wazuh agent on the workload host to establish endpoint 
+monitoring and connect it to the SIEM manager:
+
+```ommand prompt
+# Add Wazuh repository
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | \
+    sudo gpg --no-default-keyring \
+    --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg \
+    --import
+
+echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] \
+    https://packages.wazuh.com/4.x/apt/ stable main" | \
+    sudo tee /etc/apt/sources.list.d/wazuh.list
+
+
+# Install and configure the agent
+sudo apt update && sudo apt install wazuh-agent -y
+sudo sed -i 's/MANAGER_IP/10.0.30.42/' /var/ossec/etc/ossec.conf
+sudo systemctl enable wazuh-agent
+sudo systemctl start wazuh-agent
+```
+
+---
+
+**Services Verified Running**
+
+All three Wazuh server components confirmed active:
+
+wazuh-manager:    active (running) ✅
+
+wazuh-indexer:    active (running) ✅
+
+wazuh-dashboard:  active (running) ✅
+
+wazuh-agent:      active (running) on workload host ✅
+
+<img width="1215" height="444" alt="Screenshot 2026-05-30 at 6 57 37 am" src="https://github.com/user-attachments/assets/4d08e051-9425-42f8-a42c-e1a7c014a403" />
+<img width="1220" height="520" alt="Screenshot 2026-05-30 at 6 58 40 am" src="https://github.com/user-attachments/assets/80dcece3-6d74-483a-a09a-447e14cb39bb" />
+<img width="1222" height="365" alt="Screenshot 2026-05-30 at 6 59 32 am" src="https://github.com/user-attachments/assets/a3d8a1d7-862d-4fbc-82dc-04fde1d7267e" />
+<img width="1226" height="354" alt="Screenshot 2026-05-30 at 7 00 01 am" src="https://github.com/user-attachments/assets/ede1abee-d0e1-490d-bd7f-320e89f228b5" />
+
+---
+
+**Dashboard Access — SSH Tunnel**
+
+Since the Wazuh dashboard runs on a private subnet instance, access is 
+established via SSH tunnel through the firewall bastion:
+
+```command prompt
+ssh -i ~/.ssh/security-ops-lab-key.pem \
+    -L 8443:10.0.30.42:443 \
+    -N ubuntu@<firewall-public-ip>
+```
+
+Browser access: `https://localhost:8443`
+
+<img width="1920" height="993" alt="Screenshot 2026-05-30 at 3 00 57 am" src="https://github.com/user-attachments/assets/a850ccb5-65f9-4165-9a6c-e0ec24e67085" />
+
+I did this to make the tunneling pattern keep the dashboard completely off the public 
+internet while remaining accessible for the administration of a standard 
+security operations practice.
+
+<img width="1913" height="988" alt="Screenshot 2026-05-30 at 3 01 30 am" src="https://github.com/user-attachments/assets/6ad22a76-fa51-484b-9da3-23874e5cfb8b" />
+
+---
+
+### Results
+
+**Agent successfully connected and monitoring:**
+
+Active agents:    1  (workload-host — 10.0.20.143)
+
+Disconnected:     0
+
+**Live alerts generated within minutes of agent connection:**
+
+Critical severity:  0
+
+High severity:      0
+
+Medium severity:    153
+
+Low severity:       716
+
+Alerts include file integrity monitoring, system configuration checks, 
+log collection events, and policy compliance findings — all generated 
+automatically by Wazuh's built-in detection rules.
+
+<img width="1917" height="1042" alt="Screenshot 2026-05-30 at 7 44 26 am" src="https://github.com/user-attachments/assets/9bbe056c-f469-4c4f-9d72-af7b9f90e929" />
+<img width="1919" height="1038" alt="Screenshot 2026-05-30 at 7 24 43 am" src="https://github.com/user-attachments/assets/1006f618-377c-4175-bd09-f38439296b32" />
+<img width="1917" height="1041" alt="Screenshot 2026-05-30 at 6 33 15 am" src="https://github.com/user-attachments/assets/dc1c16d6-58d5-43be-8c02-0995a6bc44c4" />
+
+---
+
+### My Security Decisions & Reasoning
+
+**Why t3.small instead of t3.micro for Wazuh?**
+The Wazuh Indexer is a Java/OpenSearch application with a minimum 
+practical RAM requirement of 1.5GB during startup. Running it on t3.micro 
+caused consistent startup timeouts. t3.small is the minimum 
+viable size for a single-node Wazuh deployment.
+
+**Why did I isolate the SIEM server in a private subnet?**
+A SIEM server is a high-value target it holds logs of every security 
+event across the environment. Direct internet exposure would make it 
+vulnerable to the same attacks it's designed to detect. Private subnet 
+isolation with bastion-only access follows defence-in-depth principles.
+
+**Why i use a jump host instead of direct access?**
+The bastion/jump host pattern creates a single, auditable access point 
+into the private network. Every SSH session into the SIEM or workload 
+host passes through the firewall instance, which logs the connection. 
+
+**Why Wazuh over commercial SIEM alternatives?**
+Wazuh is open-source, free, and used in production by organisations 
+globally. It provides SIEM, EDR, file integrity monitoring, vulnerability 
+detection, and compliance reporting in a single platform making it 
+ideal for demonstrating real security operations capability without 
+licensing costs.
+
+---
+
+### Outcome
+A fully operational SIEM environment with the Wazuh manager, indexer, 
+and dashboard running in an isolated security subnet, one monitored 
+endpoint generating real security alerts, and a bastion controlled 
+access architecture that mirrors production security operations 
+infrastructure.
