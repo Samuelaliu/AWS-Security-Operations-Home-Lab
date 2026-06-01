@@ -16,7 +16,7 @@ automated response
 - [x] Phase 1: VPC architecture, subnets, routing, security groups ✅
 - [x] Phase 2: pfSense firewall deployment and rule configuration ✅
 - [x] Phase 3: Wazuh SIEM + Suricata IDS/IPS ✅
-- [ ] Phase 4: AWS WAF + web application target
+- [x] Phase 4: AWS WAF + web application target ✅
 - [ ] Phase 5: Attack simulation + detection + remediation
 - [ ] Phase 6: Automated response + documentation
 
@@ -573,7 +573,7 @@ the WAF and the workload host:
 
 <img width="1920" height="993" alt="Screenshot 2026-06-01 at 3 25 19 am" src="https://github.com/user-attachments/assets/cb2f0852-22ca-4976-96f1-cbf711ab4bd3" />
 
-A dedicated target group (`security-ops-tg`) was created pointing to 
+A dedicated target group (`security-ops-tg`) was created, pointing to 
 the workload host on port 80, with HTTP health checks against `/` to 
 monitor nginx availability.
 
@@ -605,4 +605,91 @@ AWS managed rule groups:
 | SQL Injection (SQLi) | 200 | SQL injection pattern detection and blocking |
 | **Total** | **1100/5000** | |
 
+---
+
+**AWS WAF Configuration**
+
+Created a Web ACL (`security-ops-waf`) attached to the ALB with three 
+AWS managed rule groups:
+
+| Rule Group | WCUs | Protection |
+|---|---|---|
+| Core Rule Set (CRS) | 700 | XSS, path traversal, malformed requests |
+| Known Bad Inputs | 200 | Log4j exploits, SSRF, known attack signatures |
+| SQL Injection (SQLi) | 200 | SQL injection pattern detection and blocking |
+| **Total** | **1100/5000** | |
+
+Default action: **Allow** — only requests matching attack patterns 
+are blocked. All legitimate traffic passes through unaffected.
+
+<img width="1276" height="644" alt="Screenshot 2026-06-01 at 6 49 28 pm" src="https://github.com/user-attachments/assets/b51d81cb-2757-4585-bd08-368341e930f7" />
+
+---
+
+### Attack Simulation & Results
+
+**Test 1 — Legitimate request:**
+
+GET http://security-ops-alb-1367897050.us-east-1.elb.amazonaws.com/
+Result: 200 OK — page loads normally
+Confirmed WAF allows clean traffic through without interference.
+
+**Test 2 — SQL injection attack:**
+GET http://security-ops-alb-...amazonaws.com/?id=1'%20OR%20'1'='1
+Result: 403 Forbidden — WAF blocked the request
+
+The SQLi rule set detected the classic `OR '1'='1` injection pattern 
+and blocked the request before it reached the application server.
+
+<img width="1433" height="869" alt="Screenshot 2026-06-01 at 3 48 48 am" src="https://github.com/user-attachments/assets/8a44a161-de95-404f-a8d1-1dbd9bf04868" />
+
+<img width="1439" height="872" alt="Screenshot 2026-06-01 at 4 21 19 am" src="https://github.com/user-attachments/assets/f21aa693-08f0-460e-abaa-c54e4667c7ca" />
+
+<img width="1919" height="1080" alt="Screenshot 2026-06-01 at 4 28 35 am" src="https://github.com/user-attachments/assets/dcffc424-6577-4e35-8f72-f08e7b94788d" />
+
+---
+
+### My Security Decisions & Reasoning
+
+**Why an ALB instead of direct EC2 exposure?**
+AWS WAF cannot attach directly to EC2 instances; it requires a 
+supported resource, such as an ALB. Beyond WAF integration, the ALB 
+provides health checking, traffic distribution, and a single 
+controlled ingress point, all security benefits are independent of WAF.
+
+**Why two subnets across AZs?**
+AWS ALBs require subnets in at least two Availability Zones for 
+redundancy. A second DMZ subnet (`dmz-subnet-2`) was created in 
+us-east-1b specifically for this requirement.
+
+**Why restrict workload-sg to alb-sg traffic only?**
+Direct internet access to the workload host is never permitted 
+all traffic must pass through the ALB and WAF first. This ensures 
+every request is inspected before reaching nginx, and that attackers 
+cannot bypass the WAF by hitting the EC2 instance directly.
+
+**Why AWS managed rules instead of custom rules?**
+AWS managed rule groups are maintained by AWS security researchers 
+and updated continuously as new attack vectors emerge. For a 
+production environment, they provide immediate, expert-level 
+protection without requiring manual rule authoring. Custom rules 
+can be layered on top for application-specific logic.
+
+**Why Block mode instead of Count mode?**
+Count mode logs matched requests without blocking them, useful 
+for tuning rules in a test environment. Block mode enforces the 
+rules immediately. Since this is a controlled lab with known-good 
+traffic patterns, Block mode was used from the start to demonstrate 
+real enforcement capability.
+
+---
+
+### Outcome
+A fully functional web application protected by AWS WAF, with 
+demonstrated SQL injection blocking, legitimate traffic passthrough, 
+real-time metrics visibility, and a defence-in-depth architecture 
+where traffic must pass through WAF → ALB → Security Group before 
+reaching the application server. The workload host remains completely 
+inaccessible from the internet except through the controlled ingress 
+path.
 
