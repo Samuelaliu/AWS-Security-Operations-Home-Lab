@@ -529,7 +529,7 @@ attack detection and blocking.
 
 ### Architecture
 
-<img width="4884" height="4404" alt="image" src="https://github.com/user-attachments/assets/0dae6af6-59ef-4351-9a25-9fa28870f404" />
+<img width="3648" height="3424" alt="image" src="https://github.com/user-attachments/assets/adc968ae-1826-4beb-a3df-dc0ba58434fc" />
 
 ---
 
