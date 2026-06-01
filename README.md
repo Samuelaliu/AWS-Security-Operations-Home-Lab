@@ -518,3 +518,91 @@ and dashboard running in an isolated security subnet, one monitored
 endpoint generating real security alerts, and a bastion controlled 
 access architecture that mirrors production security operations 
 infrastructure.
+
+## Phase 4: AWS WAF + Web Application Deployment
+
+### Objective
+Deploy a web application on the workload host, expose it through an 
+Application Load Balancer, and protect it with AWS WAF — demonstrating 
+real-world web application firewall configuration, rule management, and 
+attack detection and blocking.
+
+### Architecture
+
+<img width="4884" height="4404" alt="image" src="https://github.com/user-attachments/assets/0dae6af6-59ef-4351-9a25-9fa28870f404" />
+
+---
+
+### What Was Built
+
+**Web Application — Nginx on Workload Host**
+
+Deployed nginx as a web server on the workload host to serve as the 
+WAF target application:
+
+```command prompt
+sudo apt install nginx -y
+sudo systemctl enable nginx
+sudo systemctl start nginx
+```
+
+Created a custom landing page identifying the application:
+
+```html
+<h1>AWS Security Operations Lab</h1>
+<p>This web application is protected by AWS WAF.</p>
+<p>Server: workload-host | Private IP: 10.0.20.143</p>
+```
+<img width="1431" height="862" alt="Screenshot 2026-06-01 at 4 22 06 am" src="https://github.com/user-attachments/assets/b7a64b98-2fa0-46a8-82bc-c0be42f76d4e" />
+
+---
+
+**Application Load Balancer**
+
+Deployed an internet-facing Application Load Balancer to sit between 
+the WAF and the workload host:
+
+| Property | Value |
+|---|---|
+| Name | security-ops-alb |
+| Scheme | Internet-facing |
+| Subnets | dmz-subnet (us-east-1a), dmz-subnet-2 (us-east-1b) |
+| Security Group | alb-sg (HTTP/HTTPS from 0.0.0.0/0) |
+| Listener | HTTP:80 → Forward to security-ops-tg |
+| DNS | security-ops-alb-1367897050.us-east-1.elb.amazonaws.com |
+
+<img width="1920" height="993" alt="Screenshot 2026-06-01 at 3 25 19 am" src="https://github.com/user-attachments/assets/cb2f0852-22ca-4976-96f1-cbf711ab4bd3" />
+
+A dedicated target group (`security-ops-tg`) was created pointing to 
+the workload host on port 80, with HTTP health checks against `/` to 
+monitor nginx availability.
+
+<img width="1920" height="989" alt="Screenshot 2026-06-01 at 2 33 22 am" src="https://github.com/user-attachments/assets/6e18667a-a4be-44a4-8478-663772dbe0a9" />
+
+<img width="1920" height="995" alt="Screenshot 2026-06-01 at 2 33 54 am" src="https://github.com/user-attachments/assets/e1ea89b2-280f-4611-8b4f-655e20a7805c" />
+
+<img width="1920" height="982" alt="Screenshot 2026-06-01 at 2 37 05 am" src="https://github.com/user-attachments/assets/3a35923c-e171-4bb3-a328-474a7e75687f" />
+
+
+The workload-sg was updated to allow HTTP traffic from alb-sg only
+ensuring the workload host is never directly accessible from the 
+internet, only through the ALB.
+
+<img width="1684" height="689" alt="Screenshot 2026-06-01 at 3 47 02 am" src="https://github.com/user-attachments/assets/40630913-b57c-40cf-acb1-fdfc7a1915e0" />
+
+
+---
+
+**AWS WAF Configuration**
+
+Created a Web ACL (`security-ops-waf`) attached to the ALB with three 
+AWS managed rule groups:
+
+| Rule Group | WCUs | Protection |
+|---|---|---|
+| Core Rule Set (CRS) | 700 | XSS, path traversal, malformed requests |
+| Known Bad Inputs | 200 | Log4j exploits, SSRF, known attack signatures |
+| SQL Injection (SQLi) | 200 | SQL injection pattern detection and blocking |
+| **Total** | **1100/5000** | |
+
+
