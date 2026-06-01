@@ -693,3 +693,182 @@ reaching the application server. The workload host remains completely
 inaccessible from the internet except through the controlled ingress 
 path.
 
+## Phase 5: Attack Simulation & Threat Detection
+
+### Objective
+Simulate real-world attack techniques against the workload host and 
+validate that Wazuh SIEM detects, classifies, and maps them to the 
+MITRE ATT&CK framework in real time, demonstrating end-to-end 
+security monitoring capability from attack to alert.
+
+---
+
+### Attack Simulations Executed
+
+**Simulation 1 — File Integrity Violation**
+
+Modified critical system files to trigger Wazuh's file integrity 
+monitoring (FIM) engine:
+
+```command prompt
+# Created an unauthorised file in the monitored directory
+echo "simulated attack file" | sudo tee /etc/security-test-file.txt
+
+# Changed permissions on sensitive system file
+sudo chmod 777 /etc/passwd
+```
+
+These actions simulate an attacker who has gained access and is 
+attempting to modify system files, which is a common post-exploitation 
+technique.
+
+---
+
+**Simulation 2 — Unauthorised User Creation**
+
+Created a new system user to simulate a persistence technique, which is a backdoor account to maintain access 
+after initial compromise:
+
+```command prompt
+sudo useradd testattacker
+```
+
+Wazuh would have detected this immediately and mapped it to:
+
+MITRE ATT&CK: T1136 — Create Account
+Tactic:       Persistence
+Rule ID:      5902
+Rule Level:   8 (Medium-High)
+Description:  New user added to the system
+
+<img width="1915" height="1048" alt="Screenshot 2026-06-01 at 10 47 29 pm" src="https://github.com/user-attachments/assets/ca966131-9b87-423e-a36c-05e092e417fc" />
+
+---
+
+**Simulation 4 — Authentication & Lateral Movement**
+
+SSH sessions from the firewall bastion (10.0.10.157) to the workload 
+host were tracked and classified as lateral movement indicators:
+
+Critical severity:  0
+
+High severity:      0
+
+Medium severity:    118  (↑ from 116 baseline)
+
+Low severity:       87   (↑ from 74 baseline)
+
+Total events:       206 hits
+
+MITRE ATT&CK hits:  49
+
+<img width="1505" height="812" alt="image" src="https://github.com/user-attachments/assets/542afa68-fb90-4a54-9d3f-79d40bdc59f6" />
+<img width="1440" height="900" alt="Screenshot 2026-06-01 at 9 22 01 pm" src="https://github.com/user-attachments/assets/700ce830-2f7b-4e99-95ef-695b9d4e5674" />
+<img width="1910" height="1047" alt="Screenshot 2026-06-01 at 11 04 35 pm" src="https://github.com/user-attachments/assets/1ceb6e11-0709-4416-b1a6-137eea56a7ea" />
+
+---
+
+**MITRE ATT&CK Events — 49 hits detected:**
+
+ <img width="1913" height="936" alt="Screenshot 2026-06-01 at 11 12 14 pm" src="https://github.com/user-attachments/assets/41312f0c-92fe-4eba-a759-642178748a33" />
+
+> *MITRE ATT&CK events table showing all 49 classified threat events*
+
+| Timestamp | MITRE ID | Tactic | Description | Rule Level |
+|---|---|---|---|---|
+| Jun 1, 21:19 | T1078 | Defense Evasion, Persistence | PAM: Login session opened | 3 |
+| Jun 1, 21:19 | T1078, T1021 | Lateral Movement | sshd: authentication success | 3 |
+| Jun 1, 21:15 | T1548.003 | Privilege Escalation | Successful sudo to ROOT | 3 |
+| Jun 1, 21:15 | T1136 | **Persistence** | **New user added to system** | **8** |
+| Jun 1, 21:10 | T1548.003 | Privilege Escalation | Successful sudo to ROOT | 3 |
+| Jun 1, 21:06 | T1078 | Defense Evasion | PAM: Login session opened | 3 |
+
+<img width="1916" height="1041" alt="Screenshot 2026-06-01 at 10 21 52 pm" src="https://github.com/user-attachments/assets/5321841f-76db-419d-8f7c-95363e7aa875" />
+
+---
+
+**Raw Security Events — Discover View:**
+
+<img width="1919" height="1046" alt="Screenshot 2026-06-01 at 11 16 45 pm" src="https://github.com/user-attachments/assets/fcdcf1ff-7ed3-4091-a05e-fd46e9e6bad1" />
+
+> *Wazuh Discover view showing 206 raw security events with full 
+> field details, including AppArmor DENIED, PAM sessions, and 
+> authentication events*
+
+---
+
+**New User Creation Alert Detail:**
+
+<img width="1920" height="998" alt="Screenshot 2026-06-01 at 11 45 16 pm" src="https://github.com/user-attachments/assets/1ffdafb2-9aff-481e-8957-3438b80e1765" />
+
+> *Expanded alert detail for T1136 New user added to system 
+> (rule level 8) showing full event fields*
+
+---
+
+### Key Findings
+
+**What Wazuh detected automatically:**
+
+- Every SSH authentication to the workload host is logged, 
+  timestamped and mapped to MITRE ATT&CK lateral movement techniques
+- New user account creation flagged as Persistence (T1136) at 
+  rule level 8, the highest alert in this simulation
+- Every sudo execution is mapped to Privilege Escalation (T1548.003)
+- AppArmor policy violations, kernel-level security denials captured
+- PAM authentication events full session tracking with compliance 
+  framework mapping (PCI DSS, HIPAA, NIST 800-53, GDPR)
+
+**MITRE ATT&CK techniques observed:**
+
+| Technique | ID | Description |
+|---|---|---|
+| Create Account | T1136 | testattacker user created |
+| Sudo and Sudo Caching | T1548.003 | Root privilege escalation |
+| Valid Accounts | T1078 | Authenticated sessions |
+| Remote Services | T1021 | SSH lateral movement |
+
+---
+
+### My Security Decisions & Reasoning
+
+**Why simulate attacks on your own infrastructure?**
+In a real SOC environment, red team exercises and penetration tests 
+are run regularly to validate that detection rules work before real 
+attackers exploit the gaps. Running simulations in a controlled lab 
+environment and verifying they appear in the SIEM is the same 
+workflow at a smaller scale. This validates that the detection 
+pipeline from agent → manager → indexer → dashboard is working 
+end to end.
+
+**Why does MITRE ATT&CK mapping matter?**
+MITRE ATT&CK is the industry-standard framework for classifying 
+adversary behaviour. When a SIEM automatically maps raw log events 
+to MITRE techniques, it gives analysts immediate context about what 
+an attacker is doing and what their likely next steps are without 
+having to manually correlate hundreds of individual log lines.
+
+**Why is T1136 (new user creation) rule level 8?**
+Rule level 8 is medium-high severity in Wazuh's scale. Creating a 
+new system user is a strong persistence indicator; legitimate 
+administrative work rarely involves creating new users at runtime. 
+Wazuh correctly identified this as higher risk than the 
+authentication and sudo events.
+
+**What would happen in a real SOC response?**
+A rule-level 8 alert for new user creation would trigger:
+1. Immediate analyst review
+2. Validation of whether the change was authorised
+3. If unauthorised incident response playbook activation
+4. Account disabled, forensic image taken, logs preserved
+
+---
+
+### Outcome
+Successfully simulated four real-world attack techniques against a 
+monitored endpoint and validated that Wazuh detected and classified 
+all of them against the MITRE ATT&CK framework in real time. The 
+simulation confirmed the full detection pipeline is operational 
+from agent log collection through indexing to dashboard visibility 
+and demonstrated the kind of threat detection and response workflow 
+expected in a production SOC environment.
