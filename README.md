@@ -892,8 +892,6 @@ automatically takes defensive action within seconds of detection.
 
 <img width="3044" height="3804" alt="image" src="https://github.com/user-attachments/assets/c69de4e7-a2d1-4d9e-8c2e-daea0f4734a4" />
 
---------------
-
 ---
 
 ### Configuration
@@ -920,10 +918,10 @@ Added the following Active Response block to
 | timeout | 300 | Automatically unblock after 300 seconds (5 minutes) |
 
 **Rule 5710** fires when someone attempts to SSH using a username 
-that doesn't exist on the system a strong indicator of brute 
+that doesn't exist on the system, a strong indicator of brute 
 force or credential stuffing attack.
 
-Wazuh manager restarted to apply configuration:
+Wazuh manager restarted to apply the configuration:
 
 ```command prompt
 sudo systemctl restart wazuh-manager
@@ -988,8 +986,8 @@ Result: Aborted (trusted internal IP — whitelist protection)
 
 **The automated response triggered correctly:**
 
-Wazuh detected 9 SSH authentication failures from `10.0.10.157` 
-using non-existent user `fakeuser`, fired rule 5710, and immediately 
+Wazuh detected 9 SSH authentication failures from `10.0.10.157.` 
+using a non-existent user `fakeuser`, fired rule 5710, and immediately 
 invoked the `firewall-drop` active response command.
 
 **Intelligent whitelist protection worked:**
@@ -1002,7 +1000,7 @@ a network outage.
 
 **Auto-expiry confirmed:**
 
-At 00:33:10 exactly 300 seconds after the initial trigger 
+At 00:33:10, exactly 300 seconds after the initial trigger 
 Wazuh sent the `delete` command to remove the firewall block and 
 logged `Ended`. The temporary block was automatically lifted without 
 any manual intervention.
@@ -1029,25 +1027,25 @@ as designed.
 **Why firewall-drop instead of a custom script?**
 `firewall-drop` is Wazuh's built-in, battle-tested active response 
 command. It uses the host's native firewall (iptables/nftables) to 
-block the attacking IP at the network layer meaning subsequent 
+block the attacking IP at the network layer, meaning subsequent 
 packets from that IP are dropped before they even reach the 
 application. Custom scripts introduce risk of bugs; the built-in 
 command is the right choice for SSH brute force blocking.
 
 **Why rule 5710 specifically?**
-Rule 5710 fires on SSH attempts with non-existent usernames a 
+Rule 5710 fires on SSH attempts with non-existent usernames as a 
 strong signal of automated credential stuffing or brute force. 
 Legitimate users know their username; only attackers try usernames 
 that don't exist. This makes it a high-confidence, low-false-positive 
 trigger for automated blocking.
 
 **Why 300 seconds (5 minutes) instead of permanent?**
-Permanent blocks can cause operational problems legitimate users 
+Permanent blocks can cause operational problems, legitimate users 
 can be caught in them, and IP addresses rotate frequently. A 
 time-limited block stops the immediate attack, forces the attacker 
 to rotate infrastructure, and self-heals without manual intervention. 
 In production, this timeout would be tuned based on the threat 
-environment higher for external attacks, shorter for internal.
+environment, higher for external attacks, shorter for internal.
 
 **Why did the whitelist abort the block?**
 In production, your bastion/jump host IP would be whitelisted in 
@@ -1065,6 +1063,6 @@ The system detected a simulated brute force SSH attack, automatically
 triggered the firewall-drop response within seconds, applied 
 intelligent whitelist protection to avoid blocking trusted 
 infrastructure, and auto-expired the block after the configured 
-timeout — all without any human intervention. The complete response 
+timeout all without any human intervention. The complete response 
 cycle from attack to automated remediation to auto-recovery was 
 logged with full MITRE ATT&CK and compliance framework mapping.
